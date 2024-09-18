@@ -5,7 +5,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 // Error declarations
-error NotADaoMemeber();
+error NotADaoMember();
 error NftNotAvailable();
 error DeadlineExceeded();
 error NoNFTs();
@@ -15,6 +15,9 @@ error NotEnoughFunds(uint256 available, uint256 required);
 error FailedToWithdrawEther();
 error AccountIsEmpty();
 error AlreadyVoted();
+error ProposalNotExist();
+error InvalidAddress(address addr);
+error UnauthorizedSignature();
 
 /**
  * Interface for the fakeNFTMarket
@@ -42,11 +45,8 @@ contract FaruqDAO is Ownable, ReentrancyGuard {
     IFakeNFTMarket nftMarketplace;
     IDaoNFT daoNFT;
 
-    // Constructor for initializing the contract
-    constructor(address _nftMarketplace, address _daoNft) payable Ownable(msg.sender){
-        nftMarketplace = IFakeNFTMarket(_nftMarketplace);
-        daoNFT = IDaoNFT(_daoNft);
-    }
+    address[] internal owners;
+    mapping(address => bool) public isOwner;
 
     // Struct Proposal for all the relevant info
     struct Proposal {
@@ -64,9 +64,45 @@ contract FaruqDAO is Ownable, ReentrancyGuard {
     // Modifier that allows only owners of >= 1 DaoNFTs
     modifier nftHolderOnly() {
         if (daoNFT.balanceOf(msg.sender) == 0) {
-            revert NotADaoMemeber();
+            revert NotADaoMember();
         }
         _;
+    }
+
+    //checking if proposal exists
+    modifier proposalExists(uint256 proposalIndex) {
+        if (numProposals > proposalIndex) {
+            revert ProposalNotExist();
+        }
+        _;
+    }
+
+    // Modifier to check if the proposal deadline has not exceeded
+    modifier activeProposalOnly(uint256 proposalIndex) {
+        if (proposals[proposalIndex].deadline <= block.timestamp) {
+            revert DeadlineExceeded();
+        }
+        _;
+    }
+
+    // Modifier to check if proposal deadline has been exceeded and if the proposal has not yet been executed
+    modifier inactiveProposalOnly(uint256 proposalIndex) {
+        Proposal storage proposal = proposals[proposalIndex];
+
+        if (proposal.deadline > block.timestamp) {
+            revert DeadlineNotExceeded(block.timestamp, proposal.deadline);
+        }
+
+        if (proposal.executed) {
+            revert ProposalAlreadyExecuted();
+        }
+        _;
+    }
+
+    // Constructor for initializing the contract
+    constructor(address _nftMarketplace, address _daoNft) payable Ownable(msg.sender){
+        nftMarketplace = IFakeNFTMarket(_nftMarketplace);
+        daoNFT = IDaoNFT(_daoNft);
     }
 
     // createProposal allows a DaoNFT holder to create a new proposal in the DAO
@@ -86,20 +122,6 @@ contract FaruqDAO is Ownable, ReentrancyGuard {
 
         numProposals++;
         return currentProposalId;
-    }
-
-    // Modifier to check if the proposal deadline has not exceeded
-    modifier activeProposalOnly(uint256 proposalIndex) {
-        if (proposals[proposalIndex].deadline <= block.timestamp) {
-            revert DeadlineExceeded();
-        }
-        _;
-    }
-
-    // Enum for possible options for a vote
-    enum Vote {
-        YAY,
-        NAY
     }
 
     // voteOnProposal allows DaoNFT holder to cast their vote on active proposal
@@ -136,20 +158,6 @@ contract FaruqDAO is Ownable, ReentrancyGuard {
         } else {
             proposal.nahVotes += numVotes;
         }
-    }
-
-    // Modifier to check if proposal deadline has been exceeded and if the proposal has not yet been executed
-    modifier inactiveProposalOnly(uint256 proposalIndex) {
-        Proposal storage proposal = proposals[proposalIndex];
-
-        if (proposal.deadline > block.timestamp) {
-            revert DeadlineNotExceeded(block.timestamp, proposal.deadline);
-        }
-
-        if (proposal.executed) {
-            revert ProposalAlreadyExecuted();
-        }
-        _;
     }
 
     // Function to execute proposal
@@ -195,4 +203,10 @@ contract FaruqDAO is Ownable, ReentrancyGuard {
 
     receive() external payable {}
     fallback() external payable {}
+
+    // Enum for possible options for a vote
+    enum Vote {
+        YAY,
+        NAY
+    }
 }
